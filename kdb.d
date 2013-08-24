@@ -67,7 +67,6 @@ void read_query(string path) {
 		if (query != "")
 			parse_query(query);
 	}
-
 }
 
 void parse_query(string query) {
@@ -86,17 +85,26 @@ void parse_query(string query) {
 
 }
 
-void main() {
+void main(string[] args) {
 	string query;
 
-	write(">");
-
-	while (stdin.readln(query)) {
-		query = chomp(query);
-
-		if (query != "")
-			parse_query(query);
-
+	if (args.length > 1) {
+		foreach (i, x; args) {
+			if (i != 0)
+				query ~= x ~ " ";
+		}
+		writeln("args>", query);
+		parse_query(query);
+	} else {
 		write(">");
+
+		while (stdin.readln(query)) {
+			query = chomp(query);
+
+			if (query != "")
+				parse_query(query);
+
+			write(">");
+		}
 	}
 }
