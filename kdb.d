@@ -1,6 +1,7 @@
 import std.stdio;
 import std.string;
 import std.c.stdlib;
+import std.file;
 
 struct record {
 	int id;
@@ -48,12 +49,20 @@ void import_db(string path) {
 }
 
 void read_query(string path) {
+	writeln("Reading query from ", path);
+
+	if (!exists(path)) {
+		writeln("Error! ", path, "not found.");
+		return;
+	}
+
 	auto t = File(path, "r");
 
 	string query;
 
 	while (t.readln(query)) {
 		query = chomp(query);
+		writeln(path, ">", query);
 
 		if (query != "")
 			parse_query(query);
@@ -80,10 +89,14 @@ void parse_query(string query) {
 void main() {
 	string query;
 
+	write(">");
+
 	while (stdin.readln(query)) {
 		query = chomp(query);
 
 		if (query != "")
 			parse_query(query);
+
+		write(">");
 	}
 }
