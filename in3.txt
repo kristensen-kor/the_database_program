@@ -1,0 +1,7 @@
+Браузер	Почта
+Chrome	gc@mail.com
+Opera	gc@mail.com
+Opera	at@mail.com
+Chome	lovely_ada@mail.com
+Opera	lovely_ada@mail.com
+Firefox	lovely_ada@mail.com

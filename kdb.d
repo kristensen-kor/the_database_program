@@ -2,8 +2,9 @@ import std.stdio;
 import std.string;
 import std.c.stdlib;
 import std.file;
+import std.conv;
 
-struct record {
+struct Record {
 	int id;
 	string property;
 	string value;
@@ -48,6 +49,74 @@ void import_db(string path) {
 	store_cnt(cnt);
 }
 
+bool contains(string[] a, string s) {
+	foreach (x; a) {
+		if (s == x)
+			return true;
+	}
+	return false;
+}
+
+void find_property_value(Record[] db, string[] merge_rule, int gid, string property, string value) {
+	foreach (ref x; db) {
+		if (x.group == 0) {
+			if (x.property == property && x.value == value) {
+				set_gid_by_id(db, gid, x.id, merge_rule);
+			}
+		}
+	}
+}
+
+void set_gid_by_id(Record[] db, int gid, int id, string[] merge_rule) {
+	foreach (ref x; db) {
+		if (x.id == id) {
+			x.group = gid;
+			if (contains(merge_rule, x.property)) {
+				find_property_value(db, merge_rule, gid, x.property, x.value);
+			}
+		}
+	}
+}
+
+void merge() {
+	writeln("Merging");
+
+	string[] merge_rule = splitLines(cast(string)read("merge_rules.txt"));
+
+	Record[] db;
+
+	string s;
+
+	auto t = File("main.txt", "r");
+
+	while (t.readln(s)) {
+		string[] ss = split(chomp(s), "\t");
+		Record current;
+		current.id = parse!int(ss[0]);
+		current.property = ss[1];
+		current.value = ss[2];
+		current.group = 0;
+		db ~= current;
+	}
+
+	t.close;
+
+	int gid = 0;
+	int cur_id = 0;
+
+	foreach (rec; db) {
+		if (rec.group == 0) {
+			gid++;
+			set_gid_by_id(db, gid, rec.id, merge_rule);
+		}
+	}
+
+	t = File("main.txt", "w");
+	foreach (x; db) {
+		t.writeln(x.id, "\t", x.property, "\t", x.value, "\t", x.group);
+	}
+}
+
 void read_query(string path) {
 	writeln("Reading query from ", path);
 
@@ -81,7 +150,8 @@ void parse_query(string query) {
 	if (args[0] == "import")
 		import_db(args[1]);
 
-	//if (args[0] == "merge")
+	if (args[0] == "merge")
+		merge;
 
 }
 
@@ -93,7 +163,9 @@ void main(string[] args) {
 			if (i != 0)
 				query ~= x ~ " ";
 		}
+
 		writeln("args>", query);
+
 		parse_query(query);
 	} else {
 		write(">");
