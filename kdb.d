@@ -1,5 +1,6 @@
 import std.stdio;
 import std.string;
+import std.c.stdlib;
 
 struct record {
 	int id;
@@ -48,10 +49,23 @@ void import_db(string path) {
 
 void read_query(string path) {
 	auto t = File(path, "r");
+
+	string query;
+
+	while (t.readln(query)) {
+		query = chomp(query);
+
+		if (query != "")
+			parse_query(query);
+	}
+
 }
 
 void parse_query(string query) {
 	string[] args = split(query);
+
+	if (args[0] == "exit")
+		exit(0);
 
 	if (args[0] == "exec")
 		read_query(args[1]);
@@ -61,20 +75,15 @@ void parse_query(string query) {
 
 	//if (args[0] == "merge")
 
-	//switch (args[0]) {
-	//	case "import" : writeln(args[1]); break;
-	//	default : writeln("no such command");
-	//}
 }
 
 void main() {
 	string query;
 
-	while (query != "exit") {
+	while (stdin.readln(query)) {
+		query = chomp(query);
+
 		if (query != "")
 			parse_query(query);
-
-		stdin.readln(query);
-		query = chomp(query);
 	}
 }
