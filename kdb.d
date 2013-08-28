@@ -3,6 +3,7 @@ import std.string;
 import std.c.stdlib;
 import std.file;
 import std.conv;
+//import std.process;
 
 struct Record {
 	int id;
@@ -117,6 +118,48 @@ void merge() {
 	}
 }
 
+void tosql() {
+	auto t = File("main.txt", "r");
+	auto w = File("sqlite3_query.sql", "w");
+	w.writeln("CREATE TABLE main (
+	cid INTEGER,
+	property TEXT,
+	value TEXT,
+	gid INTEGER
+);");
+
+	string s;
+
+	while (t.readln(s)) {
+		string[] ss = split(chomp(s), "\t");
+		w.writefln("INSERT INTO main VALUES (%s, \"%s\", \"%s\", %s);", ss[0], ss[1], ss[2], ss[3]);
+	}
+
+	w.close;
+
+	//shell("sqlite3 main.db < sqlite3_query.sql");
+	system("sqlite3 main.db < sqlite3_query.sql");
+}
+
+void sql(string[] xs) {
+	string query;
+
+	foreach (x; xs) {
+		query ~= x ~ " ";
+	}
+
+	auto w = File("sqlite3_query.sql", "w");
+
+	w.writeln(".mode tabs");
+	w.writeln(query[0..$ - 1]);
+
+	w.close;
+
+	//writeln(shell("sqlite3 main.db < sqlite3_query.sql > sql_out.txt"));
+	system("sqlite3 main.db < sqlite3_query.sql > sql_out.txt");
+	//writeln(shell("sqlite3 main.db < sqlite3_query.sql"));
+}
+
 void read_query(string path) {
 	writeln("Reading query from ", path);
 
@@ -152,6 +195,12 @@ void parse_query(string query) {
 
 	if (args[0] == "merge")
 		merge;
+
+	if (args[0] == "tosql")
+		tosql;
+
+	if (args[0] == "sql")
+		sql(args[1..$]);
 
 }
 
