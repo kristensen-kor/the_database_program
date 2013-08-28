@@ -12,6 +12,13 @@ struct Record {
 	int group;
 }
 
+string glue_string(string[] xs) {
+	string ys;
+	foreach (x; xs)
+		ys ~= x ~ " ";
+	return ys[0..$ - 1];
+}
+
 int read_cnt() {
 	auto t = File("cnt.txt", "r");
 	int cnt;
@@ -137,27 +144,13 @@ void tosql() {
 
 	w.close;
 
-	//shell("sqlite3 main.db < sqlite3_query.sql");
 	system("sqlite3 main.db < sqlite3_query.sql");
 }
 
-void sql(string[] xs) {
-	string query;
+void sql(string query) {
+	std.file.write("sqlite3_query.sql", ".mode tabs\r\n" ~ query);
 
-	foreach (x; xs) {
-		query ~= x ~ " ";
-	}
-
-	auto w = File("sqlite3_query.sql", "w");
-
-	w.writeln(".mode tabs");
-	w.writeln(query[0..$ - 1]);
-
-	w.close;
-
-	//writeln(shell("sqlite3 main.db < sqlite3_query.sql > sql_out.txt"));
 	system("sqlite3 main.db < sqlite3_query.sql > sql_out.txt");
-	//writeln(shell("sqlite3 main.db < sqlite3_query.sql"));
 }
 
 void read_query(string path) {
@@ -200,7 +193,7 @@ void parse_query(string query) {
 		tosql;
 
 	if (args[0] == "sql")
-		sql(args[1..$]);
+		sql(glue_string(args[1..$]));
 
 }
 
@@ -208,10 +201,7 @@ void main(string[] args) {
 	string query;
 
 	if (args.length > 1) {
-		foreach (i, x; args) {
-			if (i != 0)
-				query ~= x ~ " ";
-		}
+		query = glue_string(args[1..$]);
 
 		writeln("args>", query);
 
