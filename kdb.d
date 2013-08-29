@@ -3,14 +3,8 @@ import std.string;
 import std.c.stdlib;
 import std.file;
 import std.conv;
-//import std.process;
-
-struct Record {
-	int id;
-	string property;
-	string value;
-	int group;
-}
+import std.array;
+import std.process;
 
 string glue_string(string[] xs) {
 	string ys;
@@ -20,137 +14,148 @@ string glue_string(string[] xs) {
 }
 
 int read_cnt() {
-	auto t = File("cnt.txt", "r");
-	int cnt;
-	t.readf("%s", &cnt);
-	return cnt;
+	return to!int(readText("cnt.txt"));
 }
 
 void store_cnt(int cnt) {
-	auto t = File("cnt.txt", "w");
-	t.writeln(cnt);
+	std.file.write("cnt.txt", to!string(cnt));
 }
 
 void import_db(string path) {
 	auto t = File(path, "r");
-	auto w = File("main.txt", "a");
+	auto w = File("sqlite3_query.sql", "w");
 	string s;
-	string[] properties, values;
 
 	int cnt = read_cnt;
 
 	t.readln(s);
 
-	properties = split(chomp(s), "\t");
+	string[] properties = split(chomp(s), "\t");
 
 	while (t.readln(s)) {
-		values = split(chomp(s), "\t");
+		string[] values = split(chomp(s), "\t");
 
-		foreach (i, x; properties) {
-			if (values[i] != "")
-				w.writeln(cnt, "\t", x, "\t", values[i]);
+		foreach (i; 0..properties.length) {
+			if (values[i].empty)
+				w.writefln("INSERT INTO main VALUES (%s, \"%s\", \"%s\", 0);", cnt, properties[i], values[i]);
 		}
 
 		cnt++;
 	}
 
 	store_cnt(cnt);
+	w.close;
+
+	std.c.stdlib.system("sqlite3 main.db < sqlite3_query.sql");
 }
 
-bool contains(string[] a, string s) {
+void export_db() {
+	auto t = File("sql_out.txt", "r");
+	auto w = File("export_out.txt", "w");
+	string s;
+
+	int[string][string][string] a;
+	int[string] b;
+
+	while (t.readln(s)) {
+		string[] ss = split(chomp(s), "\t");
+		a[ss[3]][ss[1]][ss[2]]++;
+	}
+
+	a.rehash;
+
 	foreach (x; a) {
-		if (s == x)
-			return true;
+		foreach (z, y; x) {
+			b[z] = 0;
+		}
 	}
-	return false;
+
+	foreach (x; a) {
+		foreach (z, y; x) {
+			if (y.length > b[z])
+				b[z] = y.length;
+		}
+	}
+
+	w.write("gid");
+	foreach (y, x; b) {
+		foreach (i; 0..x) {
+			w.write("\t", y);
+		}
+	}
+	w.writeln;
+
+	foreach (y, ref x; a) {
+		w.write(y);
+		foreach (yb, ref xb; b) {
+			foreach (i; 0..xb) {
+				w.write("\t");
+				if (!(x.get(yb, null) is null)) {
+					if (x[yb].length > 0) {
+						w.write(x[yb].keys[0]);
+						x[yb].remove(x[yb].keys[0]);
+					}
+				}
+			}
+		}
+		w.writeln;
+	}
 }
 
-void find_property_value(Record[] db, string[] merge_rule, int gid, string property, string value) {
-	foreach (ref x; db) {
-		if (x.group == 0) {
-			if (x.property == property && x.value == value) {
-				set_gid_by_id(db, gid, x.id, merge_rule);
-			}
+int merging_possible(string gid, string[] merge_rules) {
+	string cmd;
+	foreach (x; merge_rules) {
+		std.file.write("sqlite3_query.sql", "SELECT cid FROM main WHERE gid = 0 AND cid IN (
+SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
+SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ "));");
+
+		if (!executeShell("sqlite3 main.db < sqlite3_query.sql").output.empty)
+			return 1;
+	}
+	return 0;
+}
+
+void set_gid_by_id(string gid, string cid, string[] merge_rules) {
+	system("sqlite3 main.db \"UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";\"");
+
+	string cmd;
+
+	while (merging_possible(gid, merge_rules)) {
+		foreach (x; merge_rules) {
+			cmd = "UPDATE main SET gid = " ~ gid ~ " WHERE cid IN (";
+			cmd ~= "SELECT cid FROM main WHERE gid = 0 AND cid IN (";
+			cmd ~= "SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (";
+			cmd ~= "SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ ")));";
+			std.file.write("sqlite3_query.sql", cmd);
+			executeShell("sqlite3 main.db < sqlite3_query.sql");
 		}
 	}
 }
 
-void set_gid_by_id(Record[] db, int gid, int id, string[] merge_rule) {
-	foreach (ref x; db) {
-		if (x.id == id) {
-			x.group = gid;
-			if (contains(merge_rule, x.property)) {
-				find_property_value(db, merge_rule, gid, x.property, x.value);
-			}
-		}
-	}
+int get_next_record(ref string s) {
+	s = chomp(executeShell("sqlite3 main.db \"SELECT cid FROM main WHERE gid = 0 LIMIT 1\"").output);
+	return s.empty ? 0 : 1;
 }
 
 void merge() {
-	writeln("Merging");
+	writeln("Merging...");
+	std.c.stdlib.system("sqlite3 main.db \"UPDATE main SET gid = 0\"");
 
-	string[] merge_rule = splitLines(cast(string)read("merge_rules.txt"));
+	string[] merge_rules = splitLines(readText("merge_rules.txt"));
 
-	Record[] db;
+	string cid;
+	int gid = 1;
 
-	string s;
-
-	auto t = File("main.txt", "r");
-
-	while (t.readln(s)) {
-		string[] ss = split(chomp(s), "\t");
-		Record current;
-		current.id = parse!int(ss[0]);
-		current.property = ss[1];
-		current.value = ss[2];
-		current.group = 0;
-		db ~= current;
+	while (get_next_record(cid)) {
+		set_gid_by_id(to!string(gid), cid, merge_rules);
+		gid++;
 	}
-
-	t.close;
-
-	int gid = 0;
-	int cur_id = 0;
-
-	foreach (rec; db) {
-		if (rec.group == 0) {
-			gid++;
-			set_gid_by_id(db, gid, rec.id, merge_rule);
-		}
-	}
-
-	t = File("main.txt", "w");
-	foreach (x; db) {
-		t.writeln(x.id, "\t", x.property, "\t", x.value, "\t", x.group);
-	}
-}
-
-void tosql() {
-	auto t = File("main.txt", "r");
-	auto w = File("sqlite3_query.sql", "w");
-	w.writeln("CREATE TABLE main (
-	cid INTEGER,
-	property TEXT,
-	value TEXT,
-	gid INTEGER
-);");
-
-	string s;
-
-	while (t.readln(s)) {
-		string[] ss = split(chomp(s), "\t");
-		w.writefln("INSERT INTO main VALUES (%s, \"%s\", \"%s\", %s);", ss[0], ss[1], ss[2], ss[3]);
-	}
-
-	w.close;
-
-	system("sqlite3 main.db < sqlite3_query.sql");
 }
 
 void sql(string query) {
 	std.file.write("sqlite3_query.sql", ".mode tabs\r\n" ~ query);
 
-	system("sqlite3 main.db < sqlite3_query.sql > sql_out.txt");
+	std.c.stdlib.system("sqlite3 main.db < sqlite3_query.sql > sql_out.txt");
 }
 
 void read_query(string path) {
@@ -189,12 +194,11 @@ void parse_query(string query) {
 	if (args[0] == "merge")
 		merge;
 
-	if (args[0] == "tosql")
-		tosql;
-
 	if (args[0] == "sql")
 		sql(glue_string(args[1..$]));
 
+	if (args[0] == "export")
+		export_db;
 }
 
 void main(string[] args) {
