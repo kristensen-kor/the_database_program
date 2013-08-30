@@ -4,7 +4,8 @@ import std.c.stdlib;
 import std.file;
 import std.conv;
 import std.array;
-import std.process;
+//import std.process;
+import etc.c.sqlite3;
 
 string glue_string(string[] xs) {
 	string ys;
@@ -23,8 +24,10 @@ void store_cnt(int cnt) {
 
 void import_db(string path) {
 	auto t = File(path, "r");
-	auto w = File("sqlite3_query.sql", "w");
+	sqlite3* db;
 	string s;
+
+	sqlite3_open("main.db", &db);
 
 	int cnt = read_cnt;
 
@@ -36,17 +39,15 @@ void import_db(string path) {
 		string[] values = split(chomp(s), "\t");
 
 		foreach (i; 0..properties.length) {
-			if (values[i].empty)
-				w.writefln("INSERT INTO main VALUES (%s, \"%s\", \"%s\", 0);", cnt, properties[i], values[i]);
+			if (!values[i].empty)
+				sqlite3_exec(db, toStringz("INSERT INTO main VALUES (" ~ to!string(cnt) ~ ", \"" ~ properties[i] ~ "\", \"" ~ values[i] ~ "\", 0);"), null, null, null);
 		}
 
 		cnt++;
 	}
 
+	sqlite3_close(db);
 	store_cnt(cnt);
-	w.close;
-
-	std.c.stdlib.system("sqlite3 main.db < sqlite3_query.sql");
 }
 
 void export_db() {
@@ -102,21 +103,44 @@ void export_db() {
 	}
 }
 
-int merging_possible(string gid, string[] merge_rules) {
-	string cmd;
-	foreach (x; merge_rules) {
-		std.file.write("sqlite3_query.sql", "SELECT cid FROM main WHERE gid = 0 AND cid IN (
-SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
-SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ "));");
+extern (C) int callback(void* v, int cnt, char** sx, char** sy) {
+	int i;
+	string s;
 
-		if (!executeShell("sqlite3 main.db < sqlite3_query.sql").output.empty)
+	for(i = 0; i < cnt; i++) {
+		s ~= to!string(sx[i]) ~ "\t";
+	}
+
+	*cast(string*)v ~= strip(s) ~ "\r\n";
+
+	return 0;
+}
+
+int merging_possible(string gid, string[] merge_rules) {
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+	scope(exit) sqlite3_close(db);
+
+	foreach (x; merge_rules) {
+		string cmd = "SELECT cid FROM main WHERE gid = 0 AND cid IN (
+			SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
+			SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ "));";
+
+		string s;
+		sqlite3_exec(db, toStringz(cmd), &callback, &s, null);
+
+		if (!s.empty)
 			return 1;
 	}
+
 	return 0;
 }
 
 void set_gid_by_id(string gid, string cid, string[] merge_rules) {
-	system("sqlite3 main.db \"UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";\"");
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+	sqlite3_exec(db, toStringz("UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";"), null, null, null);
+	sqlite3_close(db);
 
 	string cmd;
 
@@ -126,20 +150,31 @@ void set_gid_by_id(string gid, string cid, string[] merge_rules) {
 			cmd ~= "SELECT cid FROM main WHERE gid = 0 AND cid IN (";
 			cmd ~= "SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (";
 			cmd ~= "SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ ")));";
-			std.file.write("sqlite3_query.sql", cmd);
-			executeShell("sqlite3 main.db < sqlite3_query.sql");
+			sqlite3_open("main.db", &db);
+			sqlite3_exec(db, toStringz(cmd), null, null, null);
+			sqlite3_close(db);
 		}
 	}
 }
 
 int get_next_record(ref string s) {
-	s = chomp(executeShell("sqlite3 main.db \"SELECT cid FROM main WHERE gid = 0 LIMIT 1\"").output);
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+	s = "";
+
+	sqlite3_exec(db, toStringz("SELECT cid FROM main WHERE gid = 0 LIMIT 1;"), &callback, &s, null);
+	
+	sqlite3_close(db);
+
 	return s.empty ? 0 : 1;
 }
 
 void merge() {
 	writeln("Merging...");
-	std.c.stdlib.system("sqlite3 main.db \"UPDATE main SET gid = 0\"");
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+	sqlite3_exec(db, toStringz("UPDATE main SET gid = 0;"), null, null, null);
+	sqlite3_close(db);
 
 	string[] merge_rules = splitLines(readText("merge_rules.txt"));
 
@@ -153,9 +188,21 @@ void merge() {
 }
 
 void sql(string query) {
-	std.file.write("sqlite3_query.sql", ".mode tabs\r\n" ~ query);
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
 
-	std.c.stdlib.system("sqlite3 main.db < sqlite3_query.sql > sql_out.txt");
+	string s;
+	char* err;
+
+	auto rc = sqlite3_exec(db, toStringz(query), &callback, &s, &err);
+
+	if (rc)
+		writeln("Error: ", to!string(err));
+
+	writeln(s);
+	std.file.write("sql_out.txt", s);
+
+	sqlite3_close(db);
 }
 
 void read_query(string path) {
