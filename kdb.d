@@ -117,6 +117,23 @@ extern (C) int callback(void* result, int cnt, char** values, char** columns) {
 	return 0;
 }
 
+string sql_exec(string cmd) {
+	string result;
+	char* err;
+
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+
+	auto rc = sqlite3_exec(db, toStringz(cmd), &callback, &result, &err);
+
+	if (rc)
+		writeln("SQL Error: ", to!string(err));
+
+	sqlite3_close(db);
+
+	return result;
+}
+
 int merging_possible(string gid, string[] merge_rules) {
 	sqlite3* db;
 	sqlite3_open("main.db", &db);
