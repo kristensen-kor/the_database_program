@@ -103,15 +103,16 @@ void export_db() {
 	}
 }
 
-extern (C) int callback(void* v, int cnt, char** sx, char** sy) {
-	int i;
-	string s;
+extern (C) int callback(void* result, int cnt, char** values, char** columns) {
+	foreach (i; 0..cnt) {
+		*cast(string*)result ~= to!string(values[i]);
 
-	for(i = 0; i < cnt; i++) {
-		s ~= to!string(sx[i]) ~ "\t";
+		if (i != cnt - 1) {
+			*cast(string*)result ~= "\t";
+		} else {
+			*cast(string*)result ~= "\r\n";
+		}
 	}
-
-	*cast(string*)v ~= strip(s) ~ "\r\n";
 
 	return 0;
 }
