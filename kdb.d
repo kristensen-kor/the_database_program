@@ -91,7 +91,7 @@ void export_db() {
 		foreach (yb, ref xb; b) {
 			foreach (i; 0..xb) {
 				w.write("\t");
-				if (!(x.get(yb, null) is null)) {
+				if (yb in x) {
 					if (x[yb].length > 0) {
 						w.write(x[yb].keys[0]);
 						x[yb].remove(x[yb].keys[0]);
