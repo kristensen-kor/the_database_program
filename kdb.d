@@ -4,7 +4,6 @@ import std.c.stdlib;
 import std.file;
 import std.conv;
 import std.array;
-//import std.process;
 import etc.c.sqlite3;
 
 string glue_string(string[] xs) {
@@ -24,10 +23,7 @@ void store_cnt(int cnt) {
 
 void import_db(string path) {
 	auto t = File(path, "r");
-	sqlite3* db;
 	string s;
-
-	sqlite3_open("main.db", &db);
 
 	int cnt = read_cnt;
 
@@ -40,13 +36,12 @@ void import_db(string path) {
 
 		foreach (i; 0..properties.length) {
 			if (!values[i].empty)
-				sqlite3_exec(db, toStringz("INSERT INTO main VALUES (" ~ to!string(cnt) ~ ", \"" ~ properties[i] ~ "\", \"" ~ values[i] ~ "\", 0);"), null, null, null);
+				sql_exec("INSERT INTO main VALUES (" ~ to!string(cnt) ~ ", \"" ~ properties[i] ~ "\", \"" ~ values[i] ~ "\", 0);");
 		}
 
 		cnt++;
 	}
 
-	sqlite3_close(db);
 	store_cnt(cnt);
 }
 
@@ -135,19 +130,12 @@ string sql_exec(string cmd) {
 }
 
 int merging_possible(string gid, string[] merge_rules) {
-	sqlite3* db;
-	sqlite3_open("main.db", &db);
-	scope(exit) sqlite3_close(db);
-
 	foreach (x; merge_rules) {
-		string cmd = "SELECT cid FROM main WHERE gid = 0 AND cid IN (
+		string result = sql_exec("SELECT cid FROM main WHERE gid = 0 AND cid IN (
 			SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
-			SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ "));";
+			SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ "));");
 
-		string s;
-		sqlite3_exec(db, toStringz(cmd), &callback, &s, null);
-
-		if (!s.empty)
+		if (!result.empty)
 			return 1;
 	}
 
@@ -155,22 +143,16 @@ int merging_possible(string gid, string[] merge_rules) {
 }
 
 void set_gid_by_id(string gid, string cid, string[] merge_rules) {
-	sqlite3* db;
-	sqlite3_open("main.db", &db);
-	sqlite3_exec(db, toStringz("UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";"), null, null, null);
-	sqlite3_close(db);
+	sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";");
 
 	string cmd;
 
 	while (merging_possible(gid, merge_rules)) {
 		foreach (x; merge_rules) {
-			cmd = "UPDATE main SET gid = " ~ gid ~ " WHERE cid IN (";
-			cmd ~= "SELECT cid FROM main WHERE gid = 0 AND cid IN (";
-			cmd ~= "SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (";
-			cmd ~= "SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ ")));";
-			sqlite3_open("main.db", &db);
-			sqlite3_exec(db, toStringz(cmd), null, null, null);
-			sqlite3_close(db);
+			sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid IN (
+				SELECT cid FROM main WHERE gid = 0 AND cid IN (
+				SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
+				SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ ")));");
 		}
 	}
 }
@@ -206,21 +188,10 @@ void merge() {
 }
 
 void sql(string query) {
-	sqlite3* db;
-	sqlite3_open("main.db", &db);
+	string result = sql_exec(query);
 
-	string s;
-	char* err;
-
-	auto rc = sqlite3_exec(db, toStringz(query), &callback, &s, &err);
-
-	if (rc)
-		writeln("Error: ", to!string(err));
-
-	writeln(s);
-	std.file.write("sql_out.txt", s);
-
-	sqlite3_close(db);
+	writeln(result);
+	std.file.write("sql_out.txt", result);
 }
 
 void read_query(string path) {
