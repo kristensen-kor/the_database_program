@@ -6,6 +6,37 @@ import std.conv;
 import std.array;
 import etc.c.sqlite3;
 
+extern (C) int callback(void* result, int cnt, char** values, char** columns) {
+	foreach (i; 0..cnt) {
+		*cast(string*)result ~= to!string(values[i]);
+
+		if (i != cnt - 1) {
+			*cast(string*)result ~= "\t";
+		} else {
+			*cast(string*)result ~= "\r\n";
+		}
+	}
+
+	return 0;
+}
+
+string sql_exec(string cmd) {
+	string result;
+	char* err;
+
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+
+	auto rc = sqlite3_exec(db, toStringz(cmd), &callback, &result, &err);
+
+	if (rc)
+		writeln("SQL Error: ", to!string(err));
+
+	sqlite3_close(db);
+
+	return result;
+}
+
 string glue_string(string[] xs) {
 	string ys;
 	foreach (x; xs)
@@ -98,37 +129,6 @@ void export_db() {
 	}
 }
 
-extern (C) int callback(void* result, int cnt, char** values, char** columns) {
-	foreach (i; 0..cnt) {
-		*cast(string*)result ~= to!string(values[i]);
-
-		if (i != cnt - 1) {
-			*cast(string*)result ~= "\t";
-		} else {
-			*cast(string*)result ~= "\r\n";
-		}
-	}
-
-	return 0;
-}
-
-string sql_exec(string cmd) {
-	string result;
-	char* err;
-
-	sqlite3* db;
-	sqlite3_open("main.db", &db);
-
-	auto rc = sqlite3_exec(db, toStringz(cmd), &callback, &result, &err);
-
-	if (rc)
-		writeln("SQL Error: ", to!string(err));
-
-	sqlite3_close(db);
-
-	return result;
-}
-
 int merging_possible(string gid, string[] merge_rules) {
 	foreach (x; merge_rules) {
 		string result = sql_exec("SELECT cid FROM main WHERE gid = 0 AND cid IN (
@@ -145,8 +145,6 @@ int merging_possible(string gid, string[] merge_rules) {
 void set_gid_by_id(string gid, string cid, string[] merge_rules) {
 	sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";");
 
-	string cmd;
-
 	while (merging_possible(gid, merge_rules)) {
 		foreach (x; merge_rules) {
 			sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid IN (
@@ -158,23 +156,14 @@ void set_gid_by_id(string gid, string cid, string[] merge_rules) {
 }
 
 int get_next_record(ref string s) {
-	sqlite3* db;
-	sqlite3_open("main.db", &db);
-	s = "";
-
-	sqlite3_exec(db, toStringz("SELECT cid FROM main WHERE gid = 0 LIMIT 1;"), &callback, &s, null);
-	
-	sqlite3_close(db);
+	s = sql_exec("SELECT cid FROM main WHERE gid = 0 LIMIT 1;");
 
 	return s.empty ? 0 : 1;
 }
 
 void merge() {
 	writeln("Merging...");
-	sqlite3* db;
-	sqlite3_open("main.db", &db);
-	sqlite3_exec(db, toStringz("UPDATE main SET gid = 0;"), null, null, null);
-	sqlite3_close(db);
+	sql_exec("UPDATE main SET gid = 0;");
 
 	string[] merge_rules = splitLines(readText("merge_rules.txt"));
 
