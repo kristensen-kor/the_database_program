@@ -4,17 +4,17 @@ import std.c.stdlib;
 import std.file;
 import std.conv;
 import std.array;
+import std.algorithm;
 import etc.c.sqlite3;
 
 extern (C) int callback(void* result, int cnt, char** values, char** columns) {
-	foreach (i; 0..cnt) {
-		*cast(string*)result ~= to!string(values[i]);
+	if (cnt > 0) {
+		string[] s;
 
-		if (i != cnt - 1) {
-			*cast(string*)result ~= "\t";
-		} else {
-			*cast(string*)result ~= "\r\n";
-		}
+		foreach (i; 0..cnt)
+			s ~= to!string(values[i]);
+
+		*cast(string*)result ~= to!string(s.joiner("\t")) ~ "\r\n";
 	}
 
 	return 0;
@@ -38,10 +38,7 @@ string sql_exec(string cmd) {
 }
 
 string glue_string(string[] xs) {
-	string ys;
-	foreach (x; xs)
-		ys ~= x ~ " ";
-	return ys[0..$ - 1];
+	return to!string(xs.joiner(" "));
 }
 
 int read_cnt() {
@@ -142,7 +139,7 @@ int merging_possible(string gid, string[] merge_rules) {
 	return 0;
 }
 
-void set_gid_by_id(string gid, string cid, string[] merge_rules) {
+void set_gid_by_cid(string gid, string cid, string[] merge_rules) {
 	sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";");
 
 	while (merging_possible(gid, merge_rules)) {
@@ -163,6 +160,7 @@ int get_next_record(ref string s) {
 
 void merge() {
 	writeln("Merging...");
+
 	sql_exec("UPDATE main SET gid = 0;");
 
 	string[] merge_rules = splitLines(readText("merge_rules.txt"));
@@ -171,7 +169,7 @@ void merge() {
 	int gid = 1;
 
 	while (get_next_record(cid)) {
-		set_gid_by_id(to!string(gid), cid, merge_rules);
+		set_gid_by_cid(to!string(gid), cid, merge_rules);
 		gid++;
 	}
 }
@@ -199,7 +197,7 @@ void read_query(string path) {
 		query = chomp(query);
 		writeln(path, ">", query);
 
-		if (query != "")
+		if (!query.empty)
 			parse_query(query);
 	}
 }
@@ -241,7 +239,7 @@ void main(string[] args) {
 		while (stdin.readln(query)) {
 			query = chomp(query);
 
-			if (query != "")
+			if (!query.empty)
 				parse_query(query);
 
 			write(">");
