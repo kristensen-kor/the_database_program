@@ -4,8 +4,8 @@ import std.c.stdlib;
 import std.file;
 import std.conv;
 import std.array;
-import std.algorithm;
 import etc.c.sqlite3;
+import std.datetime;
 
 extern (C) int callback(void* result, int cnt, char** values, char** columns) {
 	if (cnt > 0) {
@@ -14,7 +14,7 @@ extern (C) int callback(void* result, int cnt, char** values, char** columns) {
 		foreach (i; 0..cnt)
 			s ~= to!string(values[i]);
 
-		*cast(string*)result ~= to!string(s.joiner("\t")) ~ "\r\n";
+		*cast(string*)result ~= s.join("\t") ~ "\r\n";
 	}
 
 	return 0;
@@ -37,10 +37,6 @@ string sql_exec(string cmd) {
 	return result;
 }
 
-string glue_string(string[] xs) {
-	return to!string(xs.joiner(" "));
-}
-
 int read_cnt() {
 	return to!int(readText("cnt.txt"));
 }
@@ -53,24 +49,30 @@ void import_db(string path) {
 	auto t = File(path, "r");
 	string s;
 
-	int cnt = read_cnt;
-
 	t.readln(s);
 
 	string[] properties = split(chomp(s), "\t");
+
+	int cnt = read_cnt;
+
+	sqlite3* db;
+	sqlite3_open("main.db", &db);
+	sqlite3_exec(db, toStringz("BEGIN"), null, null, null);
 
 	while (t.readln(s)) {
 		string[] values = split(chomp(s), "\t");
 
 		foreach (i; 0..properties.length) {
 			if (!values[i].empty)
-				sql_exec("INSERT INTO main VALUES (" ~ to!string(cnt) ~ ", \"" ~ properties[i] ~ "\", \"" ~ values[i] ~ "\", 0);");
+				sqlite3_exec(db, toStringz("INSERT INTO main VALUES (" ~ to!string(cnt) ~ ", \"" ~ properties[i] ~ "\", \"" ~ values[i] ~ "\", 0);"), null, null, null);
 		}
 
 		cnt++;
 	}
 
 	store_cnt(cnt);
+	sqlite3_exec(db, toStringz("COMMIT"), null, null, null);
+	sqlite3_close(db);
 }
 
 void export_db() {
@@ -126,29 +128,22 @@ void export_db() {
 	}
 }
 
-int merging_possible(string gid, string[] merge_rules) {
-	foreach (x; merge_rules) {
-		string result = sql_exec("SELECT cid FROM main WHERE gid = 0 AND cid IN (
-			SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
-			SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ "));");
+int merging_possible(string gid, string merge_rules) {
+	string result = sql_exec("SELECT cid FROM main WHERE gid = 0 AND cid IN (
+			SELECT cid FROM main WHERE property IN (\"" ~ merge_rules ~ "\") AND value IN (
+			SELECT value FROM main WHERE property IN (\"" ~ merge_rules ~ "\") AND gid = " ~ gid ~ "));");
 
-		if (!result.empty)
-			return 1;
-	}
-
-	return 0;
+	return !result.empty;
 }
 
-void set_gid_by_cid(string gid, string cid, string[] merge_rules) {
+void set_gid_by_cid(string gid, string cid, string merge_rules) {
 	sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid = " ~ cid ~ ";");
 
 	while (merging_possible(gid, merge_rules)) {
-		foreach (x; merge_rules) {
-			sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid IN (
-				SELECT cid FROM main WHERE gid = 0 AND cid IN (
-				SELECT cid FROM main WHERE property = \"" ~ x ~ "\" AND value IN (
-				SELECT value FROM main WHERE property = \"" ~ x ~ "\" AND gid = " ~ gid ~ ")));");
-		}
+		sql_exec("UPDATE main SET gid = " ~ gid ~ " WHERE cid IN (
+			SELECT cid FROM main WHERE gid = 0 AND cid IN (
+			SELECT cid FROM main WHERE property IN (\"" ~ merge_rules ~ "\") AND value IN (
+			SELECT value FROM main WHERE property IN (\"" ~ merge_rules ~ "\") AND gid = " ~ gid ~ ")));");
 	}
 }
 
@@ -163,7 +158,7 @@ void merge() {
 
 	sql_exec("UPDATE main SET gid = 0;");
 
-	string[] merge_rules = splitLines(readText("merge_rules.txt"));
+	string merge_rules = splitLines(readText("merge_rules.txt")).join("\", \"");
 
 	string cid;
 	int gid = 1;
@@ -218,7 +213,7 @@ void parse_query(string query) {
 		merge;
 
 	if (args[0] == "sql")
-		sql(glue_string(args[1..$]));
+		sql(args[1..$].join(" "));
 
 	if (args[0] == "export")
 		export_db;
@@ -228,7 +223,7 @@ void main(string[] args) {
 	string query;
 
 	if (args.length > 1) {
-		query = glue_string(args[1..$]);
+		query = args[1..$].join(" ");
 
 		writeln("args>", query);
 
